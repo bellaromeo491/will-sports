@@ -98,15 +98,95 @@
             display: none;
         }
 
+        .file-list-container {
+            margin-bottom: 30px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .file-list-title {
+            font-size: 14px;
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+
+        .file-item {
+            padding: 12px;
+            background: #f8f9ff;
+            border: 2px solid #e0e0ff;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-item:hover {
+            background: #f0f2ff;
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+        }
+
+        .file-item.selected {
+            background: #e8ebff;
+            border-color: #667eea;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .file-item-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .file-item-name {
+            font-size: 13px;
+            color: #333;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .file-item-size {
+            font-size: 11px;
+            color: #999;
+        }
+
+        .file-item-checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #667eea;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .file-item.selected .file-item-checkbox {
+            background: #667eea;
+            color: white;
+            font-size: 14px;
+        }
+
         .file-name {
             font-size: 14px;
             color: #667eea;
             margin-top: 15px;
-            padding: 10px;
+            padding: 12px;
             background: #f0f2ff;
             border-radius: 8px;
             word-break: break-all;
             font-weight: 600;
+            display: none;
+        }
+
+        .file-name.show {
+            display: block;
         }
 
         .button-group {
@@ -271,7 +351,12 @@
             <input type="file" id="zipFile" accept=".zip" />
         </div>
 
-        <div id="fileName" class="file-name" style="display:none;"></div>
+        <div class="file-list-container" id="fileListContainer" style="display:none;">
+            <div class="file-list-title">📁 Files in ZIP:</div>
+            <div id="fileList"></div>
+        </div>
+
+        <div id="fileName" class="file-name"></div>
 
         <div class="button-group">
             <button class="btn-primary" id="convertBtn" disabled>Convert to boot.dol</button>
@@ -289,7 +374,7 @@
         </div>
 
         <p class="info-text">
-            ℹ️ Simply upload your ZIP file and we'll automatically extract the DOL file and create a Wii-compatible boot.dol executable.
+            ℹ️ Upload a ZIP file, select the DOL file you want to convert, and we'll create a Wii-compatible boot.dol executable.
         </p>
     </div>
 
@@ -297,11 +382,14 @@
 
     <script>
         let selectedFile = null;
-        let extractedDOL = null;
+        let selectedDOLFile = null;
+        let zipData = null;
 
         const dropZone = document.getElementById('dropZone');
         const zipInput = document.getElementById('zipFile');
         const fileNameDisplay = document.getElementById('fileName');
+        const fileListContainer = document.getElementById('fileListContainer');
+        const fileList = document.getElementById('fileList');
         const convertBtn = document.getElementById('convertBtn');
         const resetBtn = document.getElementById('resetBtn');
         const statusBox = document.getElementById('statusBox');
@@ -340,10 +428,74 @@
             }
 
             selectedFile = file;
-            fileNameDisplay.textContent = '✓ ' + file.name;
-            fileNameDisplay.style.display = 'block';
-            convertBtn.disabled = false;
-            showStatus('✓ ZIP file ready. Click convert to proceed.', 'success');
+            selectedDOLFile = null;
+            convertBtn.disabled = true;
+            showStatus('🔍 Scanning ZIP file...', 'processing');
+
+            JSZip.loadAsync(file)
+                .then((zip) => {
+                    zipData = zip;
+                    const dolFiles = [];
+
+                    zip.forEach((relativePath, file) => {
+                        if (!file.dir && (relativePath.toLowerCase().endsWith('.dol') || relativePath.toLowerCase().endsWith('.elf') || relativePath.toLowerCase().endsWith('.bin'))) {
+                            dolFiles.push(relativePath);
+                        }
+                    });
+
+                    if (dolFiles.length === 0) {
+                        showStatus('❌ No DOL/ELF files found in ZIP', 'error');
+                        fileListContainer.style.display = 'none';
+                        return;
+                    }
+
+                    fileList.innerHTML = '';
+                    dolFiles.forEach((dolPath, index) => {
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-item';
+                        if (index === 0) {
+                            fileItem.classList.add('selected');
+                            selectedDOLFile = dolPath;
+                        }
+
+                        fileItem.innerHTML = `
+                            <div class="file-item-info">
+                                <div class="file-item-name">📄 ${dolPath.split('/').pop()}</div>
+                                <div class="file-item-size">${dolPath}</div>
+                            </div>
+                            <div class="file-item-checkbox">${index === 0 ? '✓' : ''}</div>
+                        `;
+
+                        fileItem.addEventListener('click', () => {
+                            document.querySelectorAll('.file-item').forEach(item => {
+                                item.classList.remove('selected');
+                                item.querySelector('.file-item-checkbox').textContent = '';
+                            });
+                            fileItem.classList.add('selected');
+                            fileItem.querySelector('.file-item-checkbox').textContent = '✓';
+                            selectedDOLFile = dolPath;
+                            updateFileDisplay();
+                            convertBtn.disabled = false;
+                        });
+
+                        fileList.appendChild(fileItem);
+                    });
+
+                    fileListContainer.style.display = 'block';
+                    updateFileDisplay();
+                    convertBtn.disabled = false;
+                    showStatus(`✓ Found ${dolFiles.length} file(s). Select one to convert.`, 'success');
+                })
+                .catch((err) => {
+                    showStatus(`❌ Error reading ZIP: ${err.message}`, 'error');
+                });
+        }
+
+        function updateFileDisplay() {
+            if (selectedDOLFile) {
+                fileNameDisplay.textContent = '✓ Selected: ' + selectedDOLFile;
+                fileNameDisplay.classList.add('show');
+            }
         }
 
         function showStatus(message, type = 'normal') {
@@ -358,7 +510,7 @@
         resetBtn.addEventListener('click', reset);
 
         function convertToDOL() {
-            if (!selectedFile) {
+            if (!selectedDOLFile || !zipData) {
                 showStatus('❌ No file selected', 'error');
                 return;
             }
@@ -368,37 +520,11 @@
             updateProgress(0);
             showStatus('<span class="spinner"></span>Converting...', 'processing');
 
-            JSZip.loadAsync(selectedFile)
-                .then((zip) => {
-                    updateProgress(25);
-                    
-                    // Find DOL file
-                    let dolFile = null;
-                    zip.forEach((relativePath, file) => {
-                        if (!file.dir && (relativePath.toLowerCase().endsWith('.dol') || relativePath.toLowerCase() === 'boot.dol')) {
-                            dolFile = relativePath;
-                        }
-                    });
-
-                    if (!dolFile) {
-                        // Try to find any executable-like file
-                        zip.forEach((relativePath, file) => {
-                            if (!file.dir && (relativePath.toLowerCase().endsWith('.elf') || relativePath.toLowerCase().endsWith('.bin'))) {
-                                dolFile = relativePath;
-                            }
-                        });
-                    }
-
-                    if (!dolFile) {
-                        throw new Error('No DOL file found in ZIP');
-                    }
-
-                    updateProgress(50);
-                    return zip.file(dolFile).async('arraybuffer');
-                })
+            zipData.file(selectedDOLFile)
+                .async('arraybuffer')
                 .then((dolData) => {
                     updateProgress(75);
-                    
+
                     // Create boot.dol with proper Wii format
                     const buffer = new ArrayBuffer(dolData.byteLength);
                     const view = new DataView(buffer);
@@ -414,9 +540,8 @@
                         view.setUint32(0xE0, 0x80003100, false);
                     }
 
-                    extractedDOL = buffer;
                     updateProgress(100);
-                    
+
                     return buffer;
                 })
                 .then((buffer) => {
@@ -447,9 +572,11 @@
 
         function reset() {
             selectedFile = null;
-            extractedDOL = null;
+            selectedDOLFile = null;
+            zipData = null;
             zipInput.value = '';
-            fileNameDisplay.style.display = 'none';
+            fileNameDisplay.classList.remove('show');
+            fileListContainer.style.display = 'none';
             convertBtn.disabled = true;
             progressContainer.style.display = 'none';
             updateProgress(0);
